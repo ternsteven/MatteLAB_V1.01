@@ -16,7 +16,7 @@ tabulate
 
 huggingface-hub>0.25
 accelerate
-gradio
+gradio==5.4
 moviepy
 Pillow
 requesets

@@ -1,12 +1,10 @@
-import os, cv2, numpy as np, torch, requests
+import os, torch, numpy as np, cv2, requests
 from PIL import Image
 import torchvision.transforms as T
 from transformers import AutoModelForImageSegmentation
 
 from .config_models import usage_to_weights_file
-from .ops.image_io import preprocess_image
-from .ops.mask_ops import to_binary_mask, estimate_soft_alpha_inside_mask, refine_alpha_with_channel
-from .ops import bg_ops as bg
+from .ops.image_io import preprocess_image  # 若没有此模块，可用本地简化版
 from .compose import apply_background_replacement as _compose_apply
 
 class EngineConfig:
@@ -27,14 +25,13 @@ class BiRefEngine:
         except Exception:
             return False
 
-    # 载入/切换模型
     def load_model(self, model_name:str, input_size):
         repo = usage_to_weights_file.get(model_name, model_name)
         hf_repo = f"zhengpeng7/{repo}"
         cache_dir = os.environ.get("HF_HOME") or os.path.join(os.getcwd(), "models_local")
         os.makedirs(cache_dir, exist_ok=True)
 
-        if self.model is not None and self.current_model_name==model_name:
+        if self.model is not None and self.current_model_name == model_name:
             self.cfg.input_size = input_size; return
 
         if self._online_ok():
@@ -49,19 +46,15 @@ class BiRefEngine:
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
-    # 推理分割
     def segment(self, image, *, model_name=None, input_size=None):
         if model_name is None: model_name = self.cfg.model_name
         if input_size is None: input_size = self.cfg.input_size
         self.load_model(model_name, input_size)
 
-        im = preprocess_image(image)
+        im = preprocess_image(image) if callable(preprocess_image) else Image.fromarray(image).convert("RGB")
         orig = im.size
         im_r = im.resize(input_size, Image.BILINEAR)
-        tfm = T.Compose([
-            T.ToTensor(),
-            T.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
-        ])
+        tfm = T.Compose([T.ToTensor(), T.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
         x = tfm(im_r).unsqueeze(0).to(self.device)
         with torch.inference_mode():
             y = self.model(x)
@@ -70,6 +63,6 @@ class BiRefEngine:
         pred = cv2.resize(pred, orig, interpolation=cv2.INTER_LINEAR)
         return (pred*255).astype(np.uint8)
 
-    # 背景替换（含半透明/去白边/透明导出）
     def apply_background_replacement(self, *args, **kwargs):
+        # 直接透传到 compose（支持 roi_* 三参数）
         return _compose_apply(self, *args, **kwargs)

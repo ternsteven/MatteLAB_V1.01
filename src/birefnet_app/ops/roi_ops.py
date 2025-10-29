@@ -1,39 +1,84 @@
-# -*- coding: utf-8 -*-
-import numpy as np, cv2
 
+from typing import Dict, Any, Tuple
+import numpy as np
+import cv2
+from PIL import Image
+
+# --- 将缩略图长边压到 long_side，用于 ImageEditor 初值 ---
+def make_editor_thumbnail(img_pil: Image.Image, long_side: int = 640) -> Tuple[Dict[str, Any], Dict[str, int]]:
+    w, h = img_pil.size
+    scale = min(float(long_side) / max(w, h), 1.0)
+    tw, th = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
+    thumb = img_pil.resize((tw, th), Image.BILINEAR)
+    ev = {"background": thumb, "layers": [], "composite": thumb}
+    meta = {"ori_w": w, "ori_h": h, "thumb_w": tw, "thumb_h": th}
+    return ev, meta
+
+# --- 从 ImageEditor 的 value+meta 合成全尺寸 ROI 掩码（HxW, uint8 0/255） ---
+def editor_layers_to_mask_fullres(editor_value: Dict[str, Any], meta: Dict[str, int]) -> np.ndarray | None:
+    if not editor_value or not meta:
+        return None
+    tw, th, W, H = meta["thumb_w"], meta["thumb_h"], meta["ori_w"], meta["ori_h"]
+    mask_thumb = np.zeros((th, tw), np.uint8)
+    layers = editor_value.get("layers") or []
+    for layer in layers:
+        if layer is None: 
+            continue
+        arr = np.array(layer)
+        if arr.ndim == 3 and arr.shape[2] == 4:
+            alpha = arr[..., 3]
+            mask_thumb = np.maximum(mask_thumb, alpha.astype(np.uint8))
+        elif arr.ndim == 3 and arr.shape[2] == 3:
+            gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+            mask_thumb = np.maximum(mask_thumb, (gray > 0).astype(np.uint8) * 255)
+    if mask_thumb.max() == 0:
+        bg = editor_value.get("background"); comp = editor_value.get("composite")
+        if bg is not None and comp is not None:
+            bg = np.array(bg.convert("RGBA")); comp = np.array(comp.convert("RGBA"))
+            diff = np.abs(comp[..., :3].astype(np.int16) - bg[..., :3].astype(np.int16)).sum(axis=2)
+            mask_thumb = (diff > 5).astype(np.uint8) * 255
+    if mask_thumb.max() == 0:
+        return None
+    mask_full = cv2.resize(mask_thumb, (W, H), interpolation=cv2.INTER_NEAREST)
+    return (mask_full > 0).astype(np.uint8) * 255
+
+# --- 兼容函数：把任意图像转单通道 uint8（若工程内其它地方还在 import） ---
 def to_single_channel_uint8(x) -> np.ndarray:
     a = np.asarray(x)
-    if a.ndim == 2:
-        out = a
-    elif a.ndim == 3:
-        out = a[..., 0]
+    if a.dtype != np.uint8:
+        if a.dtype.kind == "f":
+            a = (np.clip(a, 0, 1) * 255.0 + 0.5).astype(np.uint8)
+        else:
+            a = a.astype(np.uint8)
+    if a.ndim == 2: return a
+    if a.ndim == 3:
+        if a.shape[2] == 4:
+            alpha = a[..., 3]
+            return alpha if alpha.max() > 0 else cv2.cvtColor(a[..., :3], cv2.COLOR_RGB2GRAY)
+        if a.shape[2] == 3:
+            return cv2.cvtColor(a, cv2.COLOR_RGB2GRAY)
+    raise ValueError(f"Unsupported ndim: {a.ndim}")
+
+# --- 兼容函数：compose 可能 import 的旧函数（若不再用可删） ---
+def merge_with_brush(base_mask, fg_add=None, bg_erase=None, *, feather_px: int = 0, mode: str = "augment"):
+    m = (to_single_channel_uint8(base_mask) >= 128).astype(np.uint8) * 255
+    def bin8(z): 
+        return (to_single_channel_uint8(z) >= 128).astype(np.uint8) * 255
+    if mode == "replace":
+        rep = np.zeros_like(m)
+        if fg_add is not None: rep = np.maximum(rep, bin8(fg_add))
+        if bg_erase is not None: rep = np.where(bin8(bg_erase) > 0, 0, rep).astype(np.uint8)
+        out = rep
+    elif mode == "intersect":
+        if fg_add is None: 
+            out = m
+        else:
+            out = cv2.bitwise_and(m, bin8(fg_add))
     else:
-        raise ValueError("mask 维度不支持")
-    if out.dtype != np.uint8:
-        out = (np.clip(out, 0, 1) * 255 + 0.5).astype(np.uint8)
+        out = m
+        if fg_add is not None: out = np.maximum(out, bin8(fg_add))
+        if bg_erase is not None: out = np.where(bin8(bg_erase) > 0, 0, out).astype(np.uint8)
+    if feather_px and feather_px > 0:
+        k = max(1, feather_px * 2 + 1)
+        out = cv2.GaussianBlur(out, (k, k), sigmaX=feather_px)
     return out
-
-def bbox_from_mask(mask, expand_ratio: float = 0.06, min_size: int = 12):
-    m = to_single_channel_uint8(mask)
-    ys, xs = np.where(m >= 128)
-    if len(xs) == 0 or len(ys) == 0:
-        return (0, 0, 0, 0)  # 空框
-
-    x1, y1, x2, y2 = xs.min(), ys.min(), xs.max(), ys.max()
-    w, h = x2 - x1 + 1, y2 - y1 + 1
-    cx, cy = x1 + w / 2, y1 + h / 2
-
-    # 四周按比例扩展
-    rx, ry = int(w * expand_ratio), int(h * expand_ratio)
-    x1, y1 = max(0, x1 - rx), max(0, y1 - ry)
-    x2, y2 = x2 + rx, y2 + ry
-
-    # 保证最小尺寸
-    if (x2 - x1 + 1) < min_size:
-        pad = (min_size - (x2 - x1 + 1)) // 2 + 1
-        x1, x2 = x1 - pad, x2 + pad
-    if (y2 - y1 + 1) < min_size:
-        pad = (min_size - (y2 - y1 + 1)) // 2 + 1
-        y1, y2 = y1 - pad, y2 + pad
-
-    return (int(x1), int(y1), int(x2), int(y2))

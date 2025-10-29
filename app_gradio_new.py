@@ -1,37 +1,50 @@
-import warnings; warnings.filterwarnings("ignore", message="Importing from timm", category=FutureWarning)
-
-
-
 # app_gradio_new.py
-from src.birefnet_app.ui_gradio import create_interface
-from src.birefnet_app.settings import ensure_dirs
-from src.birefnet_app.ops.image_io import (
-    load_image_safe,
-    force_png_path as _force_png_path,
-    save_image_safe as _save_image_safe,
-    resize_keep_ratio,
-    preprocess_image,
-)
-from src.birefnet_app.ops.bg_ops import (
-    hex_to_rgb,
-    resize_bg_keep_aspect as _resize_bg_keep_aspect,
-    create_background,
-    replace_background_with_mask,
-    create_transparent_result,
-)
-from src.birefnet_app.ops.mask_ops import to_binary_mask
-# 如果旧代码还在用 _to_binary_mask(...)，可加：
-_to_binary_mask = to_binary_mask
+# -*- coding: utf-8 -*-
+"""
+启动脚本只负责：
+1) 设环境（HF_HOME等）
+2) 确保目录
+3) 构建并启动UI
+"""
+
+import os
+import warnings
+
+# 屏蔽 timm 的未来警告（保留你的原逻辑）
+warnings.filterwarnings("ignore", message="Importing from timm", category=FutureWarning)
+
+# —— 可选环境预设（更稳）——
+os.environ.setdefault("HF_HOME", os.path.join(os.getcwd(), "models_local"))
+os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 
-from src.birefnet_app.ops.roi_ops import (
-    to_single_channel_uint8 as _to_single_channel_uint8,
-    bbox_from_mask as _bbox_from_mask,
-)
+def main(
+    host: str = "127.0.0.1",   # 若需局域网访问，改为 "0.0.0.0"
+    port: int = 7860,
+    open_browser: bool = False,
+    share: bool = False,
+):
+    # 延迟导入，避免启动时牵出重依赖导致循环导入
+    from src.birefnet_app.settings import ensure_dirs
+    from src.birefnet_app.ui_gradio import create_interface
 
+    ensure_dirs()
+    demo = create_interface()
+
+    # Gradio 5.x：queue() 不带并发参数；事件级并发请在 ui_gradio.py 的 .click() 上设置
+    demo.queue().launch(
+        server_name=host,
+        server_port=port,
+        share=share,
+        inbrowser=open_browser,
+    )
 
 
 if __name__ == "__main__":
-    ensure_dirs()
-    demo = create_interface()
-    demo.launch(server_name="127.0.0.1", share=False)
+    main(
+        host="127.0.0.1",
+        port=7860,
+        open_browser=True,  # True: 启动后自动打开浏览器
+        share=False,
+    )
