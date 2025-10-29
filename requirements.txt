@@ -19,3 +19,5 @@ accelerate
 gradio
 moviepy
 Pillow
+requesets
+transformers
