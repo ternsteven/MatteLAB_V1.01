@@ -14,6 +14,11 @@ import shutil
 import numpy as np
 import gradio as gr
 
+from datetime import datetime
+from PIL import ImageDraw
+from src.birefnet_app.settings import ensure_dirs
+from src.birefnet_app.settings import PRED_OUTPUT_DIR
+
 # ---- backends ----
 from .engine import BiRefEngine, EngineConfig
 from .config_models import model_descriptions
@@ -112,6 +117,58 @@ def _on_roi_toggle(enabled, img, long_side):
 # -------------------------
 # Main UI
 # -------------------------
+
+def _post_save_and_stamp(out_img, mask_img):
+    """
+    After main inference: save PNGs into preds-BiRefNet and stamp timestamp on mask preview.
+    Returns (new_mask_img, status_text).
+    """
+    if out_img is None or mask_img is None:
+        return mask_img, "⚠️ 没有可保存的输出"
+    ensure_dirs()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base = f"BiRefNet_{ts}"
+    out_path = os.path.join(PRED_OUTPUT_DIR, f"{base}.png")
+    mask_path = os.path.join(PRED_OUTPUT_DIR, f"{base}_mask.png")
+    # Save out_img PNG
+    try:
+        try:
+            out_img.save(out_path, format="PNG")
+        except Exception:
+            from PIL import Image
+            import numpy as np
+            if isinstance(out_img, np.ndarray):
+                Image.fromarray(out_img).save(out_path, format="PNG")
+            else:
+                raise
+    except Exception as e:
+        status = f"⚠️ 前景保存失败：{e}"
+        return mask_img, status
+    # Stamp timestamp on mask and save PNG
+    try:
+        md = mask_img.copy()
+        draw = ImageDraw.Draw(md)
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        w, h = md.size
+        box_w, box_h = int(w*0.52), 28
+        x0, y0 = w - box_w - 8, h - box_h - 8
+        try:
+            draw.rectangle([x0, y0, x0+box_w, y0+box_h], fill=(0,0,0,160))
+            draw.text((x0+10, y0+6), f"Generated @ {stamp}", fill=(255,255,255,255))
+        except TypeError:
+            draw.rectangle([x0, y0, x0+box_w, y0+box_h], fill=0)
+            draw.text((x0+10, y0+6), f"Generated @ {stamp}", fill=255)
+        md.save(mask_path, format="PNG")
+        status = f"✅ 已保存：<br>• {os.path.basename(out_path)}<br>• {os.path.basename(mask_path)}"
+        return md, status
+    except Exception as e:
+        try:
+            mask_img.save(mask_path, format="PNG")
+            status = f"⚠️ 蒙版叠字失败（已保存原图）：{os.path.basename(mask_path)}，原因：{e}"
+        except Exception as e2:
+            status = f"⚠️ 蒙版保存失败：{e2}"
+        return mask_img, status
+
 def create_interface():
     ensure_dirs()
     engine = BiRefEngine(EngineConfig("General", (1024, 1024)))
@@ -142,8 +199,7 @@ def create_interface():
                 with gr.Row():
                     with gr.Column(scale=5, elem_classes=["tight"]):
                         inp = gr.Image(type="pil", label="输入图片", height=360)
-                        bg = gr.Image(type="pil", label="背景（可选，留空=>透明）", height=180)
-
+                        bg = gr.State(value=None)  # 移除单图导入背景，固定为 None
                         # 基础参数
                         with gr.Accordion("⚙️ 模型与分辨率", open=False):
                             model_choices = [f"{k} - {v}" for k, v in model_descriptions.items()]
@@ -222,7 +278,7 @@ def create_interface():
                                     roi_clear = gr.Button("清空涂抹", variant="secondary")
                                     gr.Markdown("提示：用画笔大致圈定需要抠图的区域，无需涂满。")
 
-                            roi_meta_state = gr.State(value=None)
+                                    roi_meta_state = gr.State(value=None)
 
                             # 事件：启用/关闭 ROI 时初始化或隐藏
                             roi_enable.change(
@@ -253,6 +309,8 @@ def create_interface():
                     with gr.Column(scale=5):
                         out = gr.Image(label="合成结果 / 透明 PNG", height=360)
                         mask = gr.Image(label="Mask / Alpha 预览", height=180)
+
+                        status_md = gr.Markdown("")
 
                 # 单图处理回调（ROI-only）
                 def on_process(
@@ -291,7 +349,7 @@ def create_interface():
                     )
                     return result, m
 
-                run_btn.click(
+                evt = run_btn.click(
                     on_process,
                     inputs=[
                         inp, bg, model_choice, resolution,
@@ -300,18 +358,18 @@ def create_interface():
                         # ROI 相关（顺序要与函数参数一致）
                         roi_enable, roi_canvas, roi_meta_state, roi_crop_before, roi_pad_px,
                     ],
-                    outputs=[out, mask],
+                    outputs=[out, mask, status_md],
                     queue=True,              # 启用队列
                     concurrency_limit=1,    # 每个会话/事件同时只跑1个，避免显存抢占
                 )
 
+                evt.then(_post_save_and_stamp, inputs=[out, mask], outputs=[mask, status_md])
             # ================== 批量 ==================
             with gr.Tab("📁 批量"):
                 with gr.Row():
                     with gr.Column(scale=5, elem_classes=["tight"]):
                         files_b = gr.Files(label="选择多张图片", file_count="multiple", type="filepath")
-                        bg_b = gr.Image(type="pil", label="背景（可选，留空=>透明）", height=180)
-
+                        bg_b = gr.State(value=None)  # 移除单图导入背景，固定为 None
                         with gr.Accordion("⚙️ 模型与分辨率", open=True):
                             model_choices_b = [f"{k} - {v}" for k, v in model_descriptions.items()]
                             if not model_choices_b:
@@ -382,8 +440,7 @@ def create_interface():
                 with gr.Row():
                     with gr.Column(scale=5, elem_classes=["tight"]):
                         vid_in = gr.Video(label="输入视频", height=280)
-                        bg_v = gr.Image(type="pil", label="背景（可选，留空=>透明）", height=160)
-
+                        bg_v = gr.State(value=None)  # 移除单图导入背景，固定为 None
                         with gr.Accordion("⚙️ 模型与分辨率", open=True):
                             model_choices_v = [f"{k} - {v}" for k, v in model_descriptions.items()]
                             if not model_choices_v:
