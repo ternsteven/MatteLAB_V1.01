@@ -4,6 +4,41 @@ import numpy as np
 import cv2
 from PIL import Image
 
+
+# --- helpers to access Gradio ImageEditor EditorValue (dict or pydantic object) ---
+def _get_ev_field(ev, name, default=None):
+    try:
+        if isinstance(ev, dict):
+            return ev.get(name, default)
+        # Gradio v5 EditorValue is a pydantic model with attributes
+        val = getattr(ev, name, default)
+        # Some fields (background/composite) may be nested objects with a "image" or "value" attribute
+        if hasattr(val, "image"):
+            return val.image
+        if hasattr(val, "value"):
+            return val.value
+        return val
+    except Exception:
+        return default
+
+def _to_pil_or_np(x):
+    try:
+        if x is None:
+            return None
+        # EditorValue background/composite may already be numpy
+        if isinstance(x, np.ndarray):
+            return x
+        if isinstance(x, Image.Image):
+            return x
+        # dict with "image"/"array" keys
+        if isinstance(x, dict):
+            arr = x.get("image") or x.get("array") or x.get("background")
+            if arr is not None:
+                return arr
+        # Fallback: try PIL conversion from bytes-like
+        return Image.fromarray(np.asarray(x))
+    except Exception:
+        return None
 # --- 将缩略图长边压到 long_side，用于 ImageEditor 初值 ---
 def make_editor_thumbnail(img_pil: Image.Image, long_side: int = 640) -> Tuple[Dict[str, Any], Dict[str, int]]:
     w, h = img_pil.size
@@ -20,7 +55,7 @@ def editor_layers_to_mask_fullres(editor_value: Dict[str, Any], meta: Dict[str, 
         return None
     tw, th, W, H = meta["thumb_w"], meta["thumb_h"], meta["ori_w"], meta["ori_h"]
     mask_thumb = np.zeros((th, tw), np.uint8)
-    layers = editor_value.get("layers") or []
+    layers = _get_ev_field(editor_value, "layers") or []
     for layer in layers:
         if layer is None: 
             continue
@@ -32,10 +67,15 @@ def editor_layers_to_mask_fullres(editor_value: Dict[str, Any], meta: Dict[str, 
             gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
             mask_thumb = np.maximum(mask_thumb, (gray > 0).astype(np.uint8) * 255)
     if mask_thumb.max() == 0:
-        bg = editor_value.get("background"); comp = editor_value.get("composite")
-        if bg is not None and comp is not None:
-            bg = np.array(bg.convert("RGBA")); comp = np.array(comp.convert("RGBA"))
-            diff = np.abs(comp[..., :3].astype(np.int16) - bg[..., :3].astype(np.int16)).sum(axis=2)
+        comp = _get_ev_field(editor_value, "composite")
+        bg = _get_ev_field(editor_value, "background")
+        if comp is not None and bg is not None:
+            # Normalize to RGBA arrays
+            comp_img = comp if isinstance(comp, Image.Image) else Image.fromarray(np.asarray(comp)) if not isinstance(comp, np.ndarray) else Image.fromarray(comp)
+            bg_img = bg if isinstance(bg, Image.Image) else Image.fromarray(np.asarray(bg)) if not isinstance(bg, np.ndarray) else Image.fromarray(bg)
+            bg_rgba = np.array(bg_img.convert("RGBA"))
+            comp_rgba = np.array(comp_img.convert("RGBA"))
+            diff = np.abs(comp_rgba[..., :3].astype(np.int16) - bg_rgba[..., :3].astype(np.int16)).sum(axis=2)
             mask_thumb = (diff > 5).astype(np.uint8) * 255
     if mask_thumb.max() == 0:
         return None

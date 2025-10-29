@@ -10,10 +10,12 @@
 import os
 import warnings
 
+
 # 屏蔽 timm 的未来警告（保留你的原逻辑）
 warnings.filterwarnings("ignore", message="Importing from timm", category=FutureWarning)
 
 # —— 可选环境预设（更稳）——
+os.environ.setdefault("GRADIO_USE_BROTLI", "0")  # 关闭 Gradio 的 Brotli 中间件以规避 h11 长度不一致问题
 os.environ.setdefault("HF_HOME", os.path.join(os.getcwd(), "models_local"))
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
