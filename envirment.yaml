@@ -1,0 +1,24 @@
+
+---
+
+## 快速开始（不使用 Docker）
+
+> 需要 Python 3.10；依赖见 `requirements.txt`（已包含 `torch==2.5.1` 与相关库）。:contentReference[oaicite:10]{index=10}
+
+```bash
+# 1) 创建并激活环境（建议用 mamba 更快）
+mamba env create -f environment.yml  # 或 conda
+mamba activate birefnet-app
+
+# 2) （可选）登录 HF 以访问私有模型
+# huggingface-cli login
+
+# 3) 下载权重
+python scripts/download_weights.py --repo-id your-org/your-model --revision main --local-dir weights
+
+# 4) 运行（两种方式）
+# 自动选端口并尝试打开浏览器（默认推荐）
+python main.py
+# 或标准 Gradio 启动（监听 127.0.0.1:7860）
+python app_gradio_new.py
+# 或者直接双击启动.bat文件，里面写了启动脚本

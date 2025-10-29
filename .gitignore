@@ -1,0 +1,53 @@
+# --- Python basics ---
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+htmlcov/
+.coverage*
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# --- Environments ---
+.venv/
+venv/
+.env
+.env.*
+*.env
+
+# --- OS / IDE ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- App artifacts ---
+logs/
+outputs/
+runs/
+tmp/
+.cache/
+checkpoints/
+
+# --- Large assets (keep them out of Git) ---
+weights/
+*.safetensors
+*.pt
+*.bin
+*.onnx
+*.zip
+*.tar
+*.tar.gz
+*.mp4
+*.mov
+*.avi
+
+# --- Gradio ---
+gradio_cached_examples/
