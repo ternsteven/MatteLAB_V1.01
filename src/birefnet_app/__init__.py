@@ -1,1 +1,0 @@
-# birefnet_app package

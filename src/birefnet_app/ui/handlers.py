@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-birefnet_app.ui.handlers
-用于 Gradio UI 的小工具动作：打开目录、清理目录。
-函数返回中文提示字符串，便于直接绑定到 UI 的状态文本组件。
-"""
-
 from __future__ import annotations
 
 import os

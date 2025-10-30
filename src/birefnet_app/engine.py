@@ -1,3 +1,5 @@
+
+
 import os, torch, numpy as np, cv2, requests
 from PIL import Image
 import torchvision.transforms as T
@@ -66,3 +68,5 @@ class BiRefEngine:
     def apply_background_replacement(self, *args, **kwargs):
         # 直接透传到 compose（支持 roi_* 三参数）
         return _compose_apply(self, *args, **kwargs)
+
+

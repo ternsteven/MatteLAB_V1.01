@@ -50,3 +50,5 @@ if __name__ == "__main__":
         open_browser=True,  # True: 启动后自动打开浏览器
         share=False,
     )
+
+

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import os, io, zipfile
 from datetime import datetime
 from typing import Iterable, Tuple, List, Callable, Optional, Any
@@ -77,3 +78,4 @@ def process_batch_images(
         return zip_path, saved, f"✅ 批量完成：{ok_count}/{total}"
     else:
         return None, saved, "❌ 批量失败：未产生结果"
+
