@@ -33,6 +33,7 @@ from .ui.handlers import open_dir as _open_dir, clear_dir as _clear_dir, clear_c
 
 
 #####定义ui组件####
+
 # ==== 半透明/去白边控制组====
 def build_semi_controls():
     with gr.Row():
@@ -523,7 +524,7 @@ def create_interface():
                     f"💡 {note}"
                 )
 
-                logger.info(f"🎚️ 分辨率滑块调整为 {res}x{res}，预估显存 {estimated_mem:.1f} GB")
+                print(f"🎚️ 分辨率滑块调整为 {res}x{res}，预估显存 {estimated_mem:.1f} GB")
                 return msg
             ###
             def on_model_change(selected):
@@ -553,7 +554,7 @@ def create_interface():
 
                 if "lite-2K" in str(selected_model):
                     min_res = 1024
-                    logger.info(f"⚠️ {selected_model} 模型仅支持分辨率 >=1024，已调整滑块下限")
+                    print(f"⚠️ {selected_model} 模型仅支持分辨率 >=1024，已调整滑块下限")
                     return gr.update(
                         minimum=min_res,
                         maximum=max_res,
